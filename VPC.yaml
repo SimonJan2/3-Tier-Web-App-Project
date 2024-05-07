@@ -1,8 +1,16 @@
+# Creation of VPC with Subnets, IGW, Route Table Associations for CloudFormation
+
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Highly available 3 Tier architecture for web application
+Description: VPC with Subnets, IGW, Route Table Associations
 
 #← ←←←←←←←←←←←←← Parameters →→→→→→→→→→→→→→#
 Parameters:  
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Default: MyKeyPair
+    
   VPCCidrBlock:
     Type: String
     Description: CIDR block (IPv4) for the VPC (x.x.x.x/y)
@@ -54,7 +62,45 @@ Parameters:
 
 #←←←←←←←←←←←←←← Resources →→→→→→→→→→→→→→#
 Resources:
-#========== VPC creation ==========#
+
+#============================== S3 Full Access Role ==============================#
+  S3FullAccessRoleForEC2:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: S3FullAccessRoleForEC2  # Name of the role
+      # This is the role's trust policy statement that defines
+      # which services are allowed to assume this role.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'  # Policy format version
+        Statement:
+          - Effect: Allow  # Allow the defined services to assume this role
+            Principal:
+              Service:  # The services that can assume this role
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'  # The action that allows the service to assume the role
+      Policies:
+        - PolicyName: S3FullAccessPolicy  # Name of the inline policy in the role
+          PolicyDocument:
+            Version: '2012-10-17'  # Policy format version
+            Statement:
+              - Effect: Allow  # Allow the defined actions on the defined resources
+                Action:
+                  - 's3:*'  # The actions to be allowed
+                Resource:
+                  - '*'  # The resources to which the actions apply
+            #↓↓↓↓ Instance Profile ↓↓↓↓#
+  S3FullAccessInstanceProfile:  # New resource for instance profile
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      # The role(s) that should be applied to EC2 instances that use
+      # this profile.
+      Roles:
+        - !Ref S3FullAccessRoleForEC2  # Reference the created IAM role
+    DependsOn: S3FullAccessRoleForEC2  # This ensures role is created first
+
+
+#------------------------- VPC creation -------------------------#
   MyVPC:
     Type: AWS::EC2::VPC  # This is an AWS resource type for a Virtual Private Cloud
     Properties:
@@ -70,71 +116,92 @@ Resources:
       - Key: Name
         Value: Rashbag-VPC
 
+#------------------------- Subnets creation -------------------------#
+  # This is the WebTierPublicSubnet1 10.0.1.0/24
+  WebTierPublicSubnet1:
+    Type: AWS::EC2::Subnet # This is an AWS resource type for a Subnet
+    Properties:
+      CidrBlock: !Ref WebTierPublicSubnet1CidrBlock  # This is the IP address range for the Subnet
+      VpcId: !Ref MyVPC  # This links the Subnet to the VPC
+      MapPublicIpOnLaunch: true # This enables auto-assignment of IPv4 addresses
+      AvailabilityZone: us-east-1a # This is the Availability Zone
+      Tags: # This sets a tag with a key of 'Name' and the value of 'WebTierPublicSubnet1 - us-east-1a - 10.0.1.0/24'
+      - Key: Name
+        Value: !Join [ " - ", ["WebTierPublicSubnet1", "us-east-1a", !Ref WebTierPublicSubnet1CidrBlock] ] # This is the name of the subnet
+
+  # This is the WebTierPublicSubnet2 10.0.2.0/24
+  WebTierPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref WebTierPublicSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["WebTierPublicSubnet2", "us-east-1b", !Ref WebTierPublicSubnet2CidrBlock] ]
+
+  # This is the ApplicationTierPrivateSubnet1 10.0.3.0/24
+  ApplicationTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref ApplicationTierPrivateSubnet1CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1a
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["ApplicationTierPrivateSubnet1", "us-east-1a", !Ref ApplicationTierPrivateSubnet1CidrBlock] ]
+
+  # This is the ApplicationTierPrivateSubnet2 10.0.4.0/24
+  ApplicationTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref ApplicationTierPrivateSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["ApplicationTierPrivateSubnet2", "us-east-1b", !Ref ApplicationTierPrivateSubnet2CidrBlock] ]
+
+  # This is the DatabaseTierPrivateSubnet1 10.0.5.0/24
+  DatabaseTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref DatabaseTierPrivateSubnet1CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1a
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["DatabaseTierPrivateSubnet1", "us-east-1a", !Ref DatabaseTierPrivateSubnet1CidrBlock] ]
+
+  # This is the DatabaseTierPrivateSubnet2 10.0.6.0/24
+  DatabaseTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref DatabaseTierPrivateSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["DatabaseTierPrivateSubnet2", "us-east-1b", !Ref DatabaseTierPrivateSubnet2CidrBlock] ]
+
 #------------------------- Internet Gateway -------------------------#
-  # IGW creation
   InternetGateway:
     Type: AWS::EC2::InternetGateway # This is an AWS resource type for an Internet Gateway
     Properties:
       Tags:
-      - Key: Name
-        Value: Rashbag-IGW # This sets a tag with a key of 'Name' and the value of 'Ilan-IGW'
-
-  # IGW association to VPC
+        - Key: Name
+          Value: InternetGateway # This sets a tag with a key of 'Name' and the value of 'InternetGateway'
+#------------------------- Attach Internet Gateway to VPC -------------------------#
   AttachGateway:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
-      InternetGatewayId: !Ref InternetGateway
       VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
     DependsOn: InternetGateway
 
-#------------------------- Web Tier Public Subnets -------------------------#
-  WebTierPublicSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref WebTierPublicSubnet1CidrBlock
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
-      MapPublicIpOnLaunch: true
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["WebTierPublicSubnet1", !GetAtt WebTierPublicSubnet1.AvailabilityZone, !Ref WebTierPublicSubnet1CidrBlock] ]
-
-  WebTierPublicSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref WebTierPublicSubnet2CidrBlock
-      AvailabilityZone: !Select [ 1, !GetAZs "" ]
-      MapPublicIpOnLaunch: true
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["WebTierPublicSubnet2", !GetAtt WebTierPublicSubnet2.AvailabilityZone, !Ref WebTierPublicSubnet2CidrBlock] ]
-
-#------------------------- Web Tier Security Group -------------------------#
-  WebTierSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Security group for instances in Public Subnet
-      VpcId: !Ref MyVPC
-      GroupName: WebTierSecurityGroup # Name for the security group
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: icmp
-          FromPort: -1
-          ToPort: -1
-          CidrIp: 0.0.0.0/0
-      Tags:
-        - Key: Name
-          Value: WebTierSecurityGroup
-
-#------------------------- Web Tier Route Tables -------------------------#
+#------------------------- Public Route Tables -------------------------#
+  # This is the WebTierPublicRouteTable
   WebTierPublicRouteTable:
     Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
     Properties:
@@ -143,16 +210,7 @@ Resources:
         - Key: Name
           Value: WebTierPublicRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
 
- # Route to IGW from Web Tier Public Subnets
-  WebTierPublicRoute:
-    Type: AWS::EC2::Route
-    # DependsOn: WebTierPublicSubnet1
-    Properties:
-      RouteTableId: !Ref WebTierPublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
-      GatewayId: !Ref InternetGateway
-
-#-------------------- Web Tier Route Table Associations --------------------#
+ # WebRouteTableAssociation
   WebTierPublicSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
@@ -166,176 +224,151 @@ Resources:
       SubnetId: !Ref WebTierPublicSubnet2
       RouteTableId: !Ref WebTierPublicRouteTable
     DependsOn: AttachGateway
-
-#------------------------- Application Tier Subnets -------------------------#
-  ApplicationTierPrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref ApplicationTierPrivateSubnet1CidrBlock
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
-      MapPublicIpOnLaunch: false
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["ApplicationTierPrivateSubnet1", !GetAtt ApplicationTierPrivateSubnet1.AvailabilityZone, !Ref ApplicationTierPrivateSubnet1CidrBlock] ]
-
-  ApplicationTierPrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref ApplicationTierPrivateSubnet2CidrBlock
-      AvailabilityZone: !Select [ 1, !GetAZs "" ]
-      MapPublicIpOnLaunch: false
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["ApplicationTierPrivateSubnet2", !GetAtt ApplicationTierPrivateSubnet2.AvailabilityZone, !Ref ApplicationTierPrivateSubnet2CidrBlock] ]
-
-#------------------------- Application Tier Security Group -------------------------#
-  ApplicationTierSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref MyVPC
-      GroupDescription: Security group for the application tier
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: '22'
-          ToPort: '22'
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: tcp
-          FromPort: '80'
-          ToPort: '80'
-          CidrIp: 0.0.0.0/0
-        - IpProtocol: icmp
-          FromPort: -1
-          ToPort: -1
-      Tags:
-        - Key: Name
-          Value: ApplicationTierSecurityGroup
-
-#------------------------- Application Tier Route Tables -------------------------#
+  
+  #------------------------- Private Route Tables -------------------------#
+  # This is the ApplicationTierPrivateRouteTable
   ApplicationTierPrivateRouteTable:
-    Type: AWS::EC2::RouteTable
+    Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
     Properties:
-      VpcId: !Ref MyVPC
+      VpcId: !Ref MyVPC # This links the Route Table to the VPC
       Tags:
         - Key: Name
-          Value: ApplicationTierPrivateRouteTable
+          Value: ApplicationTierPrivateRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
 
   ApplicationTierPrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref ApplicationTierPrivateSubnet1 # This links the Route Table to the VPC
-      RouteTableId: !Ref ApplicationTierPrivateRouteTable # This links the Route Table to the VPC
-    # DependsOn: WebTierPublicSubnet1RouteTableAssociation
+      SubnetId: !Ref ApplicationTierPrivateSubnet1
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+    DependsOn: AttachGateway
 
   ApplicationTierPrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref ApplicationTierPrivateSubnet2 # This links the Route Table to the VPC
-      RouteTableId: !Ref ApplicationTierPrivateRouteTable # This links the Route Table to the VPC
-    # DependsOn: WebTierPublicSubnet2RouteTableAssociation
+      SubnetId: !Ref ApplicationTierPrivateSubnet2
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+    DependsOn: AttachGateway
 
-#------------------------- Database Tier SecurityGroup -------------------------#
-  DatabaseTierSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      VpcId: !Ref MyVPC
-      GroupDescription: Security group for MySQL RDS database
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: '3306'
-          ToPort: '3306'
-          SourceSecurityGroupId: !Ref ApplicationTierSecurityGroup
-
-#------------------------- Database Tier Subnets -------------------------#
-  DatabaseTierPrivateSubnet1:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref DatabaseTierPrivateSubnet1CidrBlock
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
-      MapPublicIpOnLaunch: false
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["DatabaseTierPrivateSubnet1", !GetAtt DatabaseTierPrivateSubnet1.AvailabilityZone, !Ref DatabaseTierPrivateSubnet1CidrBlock] ]
-
-  DatabaseTierPrivateSubnet2:
-    Type: AWS::EC2::Subnet
-    Properties:
-      VpcId: !Ref MyVPC
-      CidrBlock: !Ref DatabaseTierPrivateSubnet2CidrBlock
-      AvailabilityZone: !Select [ 0, !GetAZs "" ]
-      MapPublicIpOnLaunch: false
-      Tags:
-      - Key: Name
-        Value: !Join [ "-", ["DatabaseTierPrivateSubnet2", !GetAtt DatabaseTierPrivateSubnet2.AvailabilityZone, !Ref DatabaseTierPrivateSubnet2CidrBlock] ]
-
-#------------------------- Database Tier Route Tables -------------------------#
+#------------------------- Database Route Tables -------------------------#
+  # This is the DatabaseTierPrivateRouteTable
   DatabaseTierPrivateRouteTable:
-    Type: AWS::EC2::RouteTable
+    Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
     Properties:
-      VpcId: !Ref MyVPC
+      VpcId: !Ref MyVPC # This links the Route Table to the VPC
       Tags:
         - Key: Name
-          Value: DatabaseTierPrivateRouteTable
-
+          Value: DatabaseTierPrivateRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+  
   DatabaseTierPrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref DatabaseTierPrivateSubnet1 # This links the Route Table to the VPC
-      RouteTableId: !Ref DatabaseTierPrivateRouteTable # This links the Route Table to the VPC
-    # DependsOn: WebTierPublicSubnet1RouteTableAssociation
-
+      SubnetId: !Ref DatabaseTierPrivateSubnet1
+      RouteTableId: !Ref DatabaseTierPrivateRouteTable
+    DependsOn: AttachGateway
 
   DatabaseTierPrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      SubnetId: !Ref DatabaseTierPrivateSubnet2 # This links the Route Table to the VPC
-      RouteTableId: !Ref DatabaseTierPrivateRouteTable # This links the Route Table to the VPC
-    # DependsOn: WebTierPublicSubnet1RouteTableAssociation
+      SubnetId: !Ref DatabaseTierPrivateSubnet2
+      RouteTableId: !Ref DatabaseTierPrivateRouteTable
+    DependsOn: AttachGateway
 
-#------------------------- Endpoints -------------------------#
-# Endpoint for accessing Amazon S3 with a Name tag
-  S3GatewayEndpoint:
-    Type: AWS::EC2::VPCEndpoint
+#------------------------- Route to IGW from Web Tier Public Subnets -------------------------#
+  WebTierPublicRoute:
+    Type: AWS::EC2::Route
+    # DependsOn: WebTierPublicSubnet1
     Properties:
-      VpcEndpointType: Gateway
+      RouteTableId: !Ref WebTierPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#------------------------- Route to IGW from Application Tier Private Subnets -------------------------#
+  ApplicationTierPrivateRoute:
+    Type: AWS::EC2::Route
+    # DependsOn: ApplicationTierPrivateSubnet1
+    Properties:
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#------------------------- Route to IGW from Database Tier Private Subnets -------------------------#
+  DatabaseTierPrivateRoute:
+    Type: AWS::EC2::Route
+    # DependsOn: DatabaseTierPrivateSubnet1
+    Properties:
+      RouteTableId: !Ref DatabaseTierPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#------------------------- Security Groups -------------------------#
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: WebTierSecurityGroup
+      GroupDescription: WebTierSecurityGroup
       VpcId: !Ref MyVPC
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
-      PolicyDocument:
-        Version: "2008-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action: "*"
-            Resource: "*"
-      RouteTableIds:
-        - !Ref ApplicationTierPrivateRouteTable
-        - !Ref DatabaseTierPrivateRouteTable
-
-# Endpoint for accessing Application Instance Connect
-  AplicationInstanceConnectEndpoint:
-    Type: AWS::EC2::InstanceConnectEndpoint
-    Properties:
-      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
-      SecurityGroupIds: 
-        - !GetAtt ApplicationTierSecurityGroup.GroupId  # Replace with your security group ID(s)
-      SubnetId: !Ref ApplicationTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
-      Tags: 
+      Tags:
         - Key: Name
-          Value: MyInstanceConnectEndpoint
+          Value: WebTierSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
 
-# Endpoint for accessing Database Instance Connect
-  DatabaseInstanceConnectEndpoint:
-    Type: AWS::EC2::InstanceConnectEndpoint
+  ApplicationTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
-      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
-      SecurityGroupIds: 
-        - !GetAtt DatabaseTierSecurityGroup.GroupId  # Replace with your security group ID(s)
-      SubnetId: !Ref DatabaseTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
-      Tags: 
+      GroupName: ApplicationTierSecurityGroup
+      GroupDescription: ApplicationTierSecurityGroup
+      VpcId: !Ref MyVPC
+      Tags:
         - Key: Name
-          Value: MyInstanceConnectEndpoint
+          Value: ApplicationTierSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+  
+  DatabaseTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: DatabaseTierSecurityGroup
+      GroupDescription: DatabaseTierSecurityGroup
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: DatabaseTierSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
 
 #------------------------- Outputs -------------------------#
 Outputs:
@@ -381,17 +414,17 @@ Outputs:
     Export:
       Name: ApplicationTierPrivateSubnet2
 
-  AplicationTierSecurityGroupID:
-    Value: !GetAtt AplicationTierSecurityGroup.GroupId
+  ApplicationTierSecurityGroupID:
+    Value: !GetAtt ApplicationTierSecurityGroup.GroupId
     Description: The ID of the Application Tier Security Group
     Export:
-      Name: AplicationTierSecurityGroup
+      Name: ApplicationTierSecurityGroup
 
-  AplicationTierPrivateRouteTableID: 
-    Value: !GetAtt AplicationTierPrivateRouteTable.RouteTableId
+  ApplicationTierPrivateRouteTableID: 
+    Value: !GetAtt ApplicationTierPrivateRouteTable.RouteTableId
     Description: The ID of the Application Tier Private Route Table
     Export:
-      Name: AplicationTierPrivateRouteTable
+      Name: ApplicationTierPrivateRouteTable
 
   DatabaseTierPrivateSubnet1:
     Value: !Ref DatabaseTierPrivateSubnet1
@@ -417,14 +450,8 @@ Outputs:
     Export:
       Name: DatabaseTierPrivateRouteTable
 
-  AplicationInstanceConnectEndpointID:
-    Value: !GetAtt AplicationInstanceConnectEndpoint.InstanceConnectEndpointId
-    Description: The ID of the Application Instance Connect Endpoint
+  S3FullAccessInstanceProfile:
+    Value: !Ref S3FullAccessInstanceProfile
+    Description: The ID of the S3FullAccessInstanceProfile
     Export:
-      Name: AplicationInstanceConnectEndpointID
-
-  DatabaseInstanceConnectEndpointID:
-    Value: !GetAtt DatabaseInstanceConnectEndpoint.InstanceConnectEndpointId
-    Description: The ID of the Database Instance Connect Endpoint
-    Export:
-      Name: DatabaseInstanceConnectEndpointID
+      Name: S3FullAccessInstanceProfile
