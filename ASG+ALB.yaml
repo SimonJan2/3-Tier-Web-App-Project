@@ -46,7 +46,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: Forward
+        - Type: forward
           TargetGroupArn: !Ref WebTierTargetGroup
       LoadBalancerArn: !Ref WebTierLoadBalancer
       Port: 80
@@ -102,7 +102,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: Forward
+        - Type: forward
           TargetGroupArn: !Ref ApplicationTierTargetGroup
       LoadBalancerArn: !Ref ApplicationTierLoadBalancer
       Port: 80
@@ -128,12 +128,12 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: WebTierAutoScalingGroup # Name of the ASG
-      LaunchConfigurationName: WebTierLaunchConfig # Use the launch configuration created above
+      LaunchConfigurationName: !Ref WebTierLaunchConfiguration # Use the launch configuration created above
       MaxSize: 4 # Max number of instances in the ASG
       DesiredCapacity: 2 # Desired number of instances
       MinSize: 2 # Min number of instances in the ASG
       TargetGroupARNs:
-        - !GetAtt WebTierTargetGroup.Arn # Associate the target group with the ASG
+        - !Ref WebTierTargetGroup # Associate the target group with the ASG
       VPCZoneIdentifier:
         - !ImportValue WebTierPublicSubnet1 # Launch instances in these subnets
         - !ImportValue WebTierPublicSubnet2 # Launch instances in these subnets
@@ -238,12 +238,12 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
       AutoScalingGroupName: AppTierAutoScalingGroup # Name of the ASG
-      LaunchConfigurationName: AppTierLaunchConfig  # Use the launch configuration created above
+      LaunchConfigurationName: !Ref AppTierLaunchConfiguration  # Use the launch configuration created above
       MaxSize: 4 # Max number of instances in the ASG
       DesiredCapacity: 2 # Desired number of instances
       MinSize: 2 # Min number of instances in the ASG
       TargetGroupARNs:
-        - !GetAtt ApplicationTierTargetGroup.Arn # Associate the target group with the ASG
+        - !Ref ApplicationTierTargetGroup # Associate the target group with the ASG
       VPCZoneIdentifier:
         - !ImportValue ApplicationTierPrivateSubnet1 # Launch instances in these subnets
         - !ImportValue ApplicationTierPrivateSubnet2 # Launch instances in these subnets

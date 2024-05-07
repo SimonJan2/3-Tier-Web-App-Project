@@ -1,3 +1,9 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Highly available 3 Tier architecture for web application
+
+#←←←←←←←←←←←←←← Resources →→→→→→→→→→→→→→#
+Resources:
+
 #------------------------- Database Tier RDS Instance -------------------------#
   RDSDBInstance:
     Type: AWS::RDS::DBInstance
