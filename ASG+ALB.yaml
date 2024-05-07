@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Highly available 3 Tier architecture for web application
+#← ←←←←←←←←←←←←← Parameters →→→→→→→→→→→→→→#
+Parameters:  
 
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Default: MyKeyPair
+    
 
 #←←←←←←←←←←←←←← Resources →→→→→→→→→→→→→→#
 Resources:
@@ -238,8 +245,8 @@ Resources:
       TargetGroupARNs:
         - !GetAtt ApplicationTierTargetGroup.Arn # Associate the target group with the ASG
       VPCZoneIdentifier:
-        - !Ref ApplicationTierPrivateSubnet1 # Launch instances in these subnets
-        - !Ref ApplicationTierPrivateSubnet2 # Launch instances in these subnets
+        - !ImportValue ApplicationTierPrivateSubnet1 # Launch instances in these subnets
+        - !ImportValue ApplicationTierPrivateSubnet2 # Launch instances in these subnets
       HealthCheckType: EC2 # Use EC2 health checks
       HealthCheckGracePeriod: 300 # Wait 300 seconds before checking health
       MetricsCollection:
@@ -332,7 +339,7 @@ Resources:
     Properties:
       PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
       SecurityGroupIds: 
-        - !GetAtt ApplicationTierSecurityGroup.GroupId # Replace with your security group ID(s)
+        - !ImportValue ApplicationTierSecurityGroup.GroupId # Replace with your security group ID(s)
       SubnetId: !ImportValue ApplicationTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
       Tags: 
         - Key: Name
