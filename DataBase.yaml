@@ -1,0 +1,24 @@
+#------------------------- Database Tier RDS Instance -------------------------#
+  RDSDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: mydatabase
+      AllocatedStorage: 20
+      DBInstanceClass: db.t3.micro
+      Engine: MySQL
+      EngineVersion: '8.0'
+      MasterUsername: admin
+      MasterUserPassword: Aa12345678
+      MultiAZ: true # Enable Multi-AZ
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !ImportValue DatabaseTierSecurityGroup
+  
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      DBSubnetGroupName: !ImportValue DatabaseTierSecurityGroup
+      SubnetIds:
+        - !ImportValue DatabaseTierPrivateSubnet1
+        - !ImportValue DatabaseTierPrivateSubnet2

@@ -370,6 +370,46 @@ Resources:
           ToPort: -1
           CidrIp: 0.0.0.0/0
 
+#------------------------- Endpoints -------------------------#
+# Endpoint for accessing Amazon S3 with a Name tag
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "*"
+            Resource: "*"
+      RouteTableIds:
+        - !Ref ApplicationTierPrivateRouteTable
+
+  AplicationInstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
+      SecurityGroupIds: 
+        - !GetAtt ApplicationTierSecurityGroup.GroupId # Replace with your security group ID(s)
+      SubnetId: !Ref ApplicationTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
+      Tags: 
+        - Key: Name
+          Value: ApplicationTierInstanceConnectEndpoint
+
+  DatabaseInstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
+      SecurityGroupIds: 
+        - !GetAtt DatabaseTierSecurityGroup.GroupId # Replace with your security group ID(s)
+      SubnetId: !Ref DatabaseTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
+      Tags: 
+        - Key: Name
+          Value: DatabaseTierInstanceConnectEndpoint
+
 #------------------------- Outputs -------------------------#
 Outputs:
   MyVPC:
@@ -455,3 +495,4 @@ Outputs:
     Description: The ID of the S3FullAccessInstanceProfile
     Export:
       Name: S3FullAccessInstanceProfile
+

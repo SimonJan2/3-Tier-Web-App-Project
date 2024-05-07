@@ -135,8 +135,8 @@ Resources:
       TargetGroupARNs:
         - !GetAtt WebTierTargetGroup.Arn # Associate the target group with the ASG
       VPCZoneIdentifier:
-        - !Ref WebTierPublicSubnet1 # Launch instances in these subnets
-        - !Ref WebTierPublicSubnet2 # Launch instances in these subnets
+        - !ImportValue WebTierPublicSubnet1 # Launch instances in these subnets
+        - !ImportValue WebTierPublicSubnet2 # Launch instances in these subnets
       HealthCheckType: EC2 # Use EC2 health checks
       HealthCheckGracePeriod: 300 # Wait 300 seconds before checking health
       MetricsCollection:
@@ -292,66 +292,4 @@ Resources:
           # The object key is "rashbag.txt"
           aws s3 cp rashbag.txt s3://$BUCKET_NAME/
 
-#------------------------- Database Tier RDS Instance -------------------------#
-  RDSDBInstance:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBName: mydatabase
-      AllocatedStorage: 20
-      DBInstanceClass: db.t2.micro
-      Engine: MySQL
-      EngineVersion: '8.0'
-      MasterUsername: admin
-      MasterUserPassword: Aa12345678
-      MultiAZ: true # Enable Multi-AZ
-      DBSubnetGroupName: !Ref RDSSubnetGroup
-      VPCSecurityGroups: !ImportValue DatabaseTierSecurityGroup
-  
-  RDSSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Subnet group for RDS
-      DBSubnetGroupName: !ImportValue DatabaseTierSecurityGroup
-      SubnetIds:
-        - !ImportValue DatabaseTierPrivateSubnet1
-        - !ImportValue DatabaseTierPrivateSubnet2
 
-#------------------------- Endpoints -------------------------#
-# Endpoint for accessing Amazon S3 with a Name tag
-  S3GatewayEndpoint:
-    Type: AWS::EC2::VPCEndpoint
-    Properties:
-      VpcEndpointType: Gateway
-      VpcId: !ImportValue MyVPC
-      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
-      PolicyDocument:
-        Version: "2008-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action: "*"
-            Resource: "*"
-      RouteTableIds:
-        - !ImportValue ApplicationTierPrivateRouteTable
-
-  AplicationInstanceConnectEndpoint:
-    Type: AWS::EC2::InstanceConnectEndpoint
-    Properties:
-      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
-      SecurityGroupIds: 
-        - !ImportValue ApplicationTierSecurityGroup.GroupId # Replace with your security group ID(s)
-      SubnetId: !ImportValue ApplicationTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
-      Tags: 
-        - Key: Name
-          Value: ApplicationTierInstanceConnectEndpoint
-
-  DatabaseInstanceConnectEndpoint:
-    Type: AWS::EC2::InstanceConnectEndpoint
-    Properties:
-      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
-      SecurityGroupIds: 
-        - !ImportValue DatabaseTierSecurityGroup # Replace with your security group ID(s)
-      SubnetId: !ImportValue DatabaseTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
-      Tags: 
-        - Key: Name
-          Value: DatabaseTierInstanceConnectEndpoint
