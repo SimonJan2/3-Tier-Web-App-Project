@@ -1,0 +1,849 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Highly available 3 Tier architecture for web application",
+    "Parameters": {
+        "VPCCidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the VPC (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.0.0/16"
+        },
+        "WebTierPublicSubnet1CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Web Tier Public Subnet 1 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.1.0/24"
+        },
+        "WebTierPublicSubnet2CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Web Tier Public Subnet 2 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.2.0/24"
+        },
+        "ApplicationTierPrivateSubnet1CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Application Tier Private Subnet 1 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.3.0/24"
+        },
+        "ApplicationTierPrivateSubnet2CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Application Tier Private Subnet 2 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.4.0/24"
+        },
+        "DatabaseTierPrivateSubnet1CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Database Tier Private Subnet 1 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.5.0/24"
+        },
+        "DatabaseTierPrivateSubnet2CidrBlock": {
+            "Type": "String",
+            "Description": "CIDR block (IPv4) for the Database Tier Private Subnet 2 (x.x.x.x/y)",
+            "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+            "ConstraintDescription": "must be a valid IPv4 CIDR range",
+            "Default": "10.0.6.0/24"
+        }
+    },
+    "Resources": {
+        "S3FullAccessRoleForEC2": {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "RoleName": "S3FullAccessRoleForEC2",
+                "AssumeRolePolicyDocument": {
+                    "Version": "2012-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [
+                                    "ec2.amazonaws.com"
+                                ]
+                            },
+                            "Action": [
+                                "sts:AssumeRole"
+                            ]
+                        }
+                    ]
+                },
+                "Policies": [
+                    {
+                        "PolicyName": "S3FullAccessPolicy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "s3:*"
+                                    ],
+                                    "Resource": [
+                                        "*"
+                                    ]
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "S3FullAccessInstanceProfile": {
+            "Type": "AWS::IAM::InstanceProfile",
+            "Properties": {
+                "Roles": [
+                    {
+                        "Ref": "S3FullAccessRoleForEC2"
+                    }
+                ]
+            },
+            "DependsOn": "S3FullAccessRoleForEC2"
+        },
+        "MyVPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": {
+                    "Ref": "VPCCidrBlock"
+                },
+                "EnableDnsSupport": "true",
+                "EnableDnsHostnames": "true",
+                "InstanceTenancy": "default",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Rashbag-VPC"
+                    }
+                ]
+            }
+        },
+        "InternetGateway": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Rashbag-IGW"
+                    }
+                ]
+            }
+        },
+        "AttachGateway": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                },
+                "VpcId": {
+                    "Ref": "MyVPC"
+                }
+            },
+            "DependsOn": "InternetGateway"
+        },
+        "WebTierPublicSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "WebTierPublicSubnet1CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "WebTierPublicSubnet1",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "WebTierPublicSubnet1",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "WebTierPublicSubnet1CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "WebTierPublicSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "WebTierPublicSubnet2CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": true,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "WebTierPublicSubnet2",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "WebTierPublicSubnet2",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "WebTierPublicSubnet2CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "WebTierSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Security group for instances in Public Subnet",
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "GroupName": "WebTierSecurityGroup",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 80,
+                        "ToPort": 80,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 22,
+                        "ToPort": 22,
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "icmp",
+                        "FromPort": -1,
+                        "ToPort": -1,
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "WebTierSecurityGroup"
+                    }
+                ]
+            }
+        },
+        "WebTierPublicRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "WebTierPublicRouteTable"
+                    }
+                ]
+            }
+        },
+        "WebTierPublicRoute": {
+            "Type": "AWS::EC2::Route",
+            "DependsOn": "WebTierPublicSubnet1",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "WebTierPublicRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "WebTierPublicSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "WebTierPublicSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "WebTierPublicRouteTable"
+                }
+            }
+        },
+        "WebTierPublicSubnet2RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "WebTierPublicSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "WebTierPublicRouteTable"
+                }
+            }
+        },
+        "ApplicationTierPrivateSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "ApplicationTierPrivateSubnet1CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "ApplicationTierPrivateSubnet1",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "ApplicationTierPrivateSubnet1",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "ApplicationTierPrivateSubnet1CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "ApplicationTierPrivateSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "ApplicationTierPrivateSubnet2CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        1,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "ApplicationTierPrivateSubnet2",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "ApplicationTierPrivateSubnet2",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "ApplicationTierPrivateSubnet2CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "ApplicationTierSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "GroupDescription": "Security group for the application tier",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "22",
+                        "ToPort": "22",
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "80",
+                        "ToPort": "80",
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "icmp",
+                        "FromPort": -1,
+                        "ToPort": -1
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "ApplicationTierSecurityGroup"
+                    }
+                ]
+            }
+        },
+        "ApplicationTierPrivateRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "ApplicationTierPrivateRouteTable"
+                    }
+                ]
+            }
+        },
+        "ApplicationTierPrivateSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "ApplicationTierPrivateSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "ApplicationTierPrivateRouteTable"
+                }
+            }
+        },
+        "ApplicationTierPrivateSubnet2RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "ApplicationTierPrivateSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "ApplicationTierPrivateRouteTable"
+                }
+            }
+        },
+        "DatabaseTierSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "GroupDescription": "Security group for MySQL RDS database",
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "3306",
+                        "ToPort": "3306",
+                        "SourceSecurityGroupId": {
+                            "Ref": "ApplicationTierSecurityGroup"
+                        }
+                    }
+                ]
+            }
+        },
+        "DatabaseTierPrivateSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "DatabaseTierPrivateSubnet1CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "DatabaseTierPrivateSubnet1",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "DatabaseTierPrivateSubnet1",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "DatabaseTierPrivateSubnet1CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "DatabaseTierPrivateSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "CidrBlock": {
+                    "Ref": "DatabaseTierPrivateSubnet2CidrBlock"
+                },
+                "AvailabilityZone": {
+                    "Fn::Select": [
+                        0,
+                        {
+                            "Fn::GetAZs": ""
+                        }
+                    ]
+                },
+                "MapPublicIpOnLaunch": false,
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "-",
+                                [
+                                    "DatabaseTierPrivateSubnet2",
+                                    {
+                                        "Fn::GetAtt": [
+                                            "DatabaseTierPrivateSubnet2",
+                                            "AvailabilityZone"
+                                        ]
+                                    },
+                                    {
+                                        "Ref": "DatabaseTierPrivateSubnet2CidrBlock"
+                                    }
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "DatabaseTierPrivateRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "DatabaseTierPrivateRouteTable"
+                    }
+                ]
+            }
+        },
+        "DatabaseTierPrivateSubnet1RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "DatabaseTierPrivateSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "DatabaseTierPrivateRouteTable"
+                }
+            }
+        },
+        "DatabaseTierPrivateSubnet2RouteTableAssociation": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "DatabaseTierPrivateSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "DatabaseTierPrivateRouteTable"
+                }
+            }
+        },
+        "S3GatewayEndpoint": {
+            "Type": "AWS::EC2::VPCEndpoint",
+            "Properties": {
+                "VpcEndpointType": "Gateway",
+                "VpcId": {
+                    "Ref": "MyVPC"
+                },
+                "ServiceName": {
+                    "Fn::Sub": "com.amazonaws.${AWS::Region}.s3"
+                },
+                "PolicyDocument": {
+                    "Version": "2008-10-17",
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": "*",
+                            "Action": "*",
+                            "Resource": "*"
+                        }
+                    ]
+                },
+                "RouteTableIds": [
+                    {
+                        "Ref": "ApplicationTierPrivateRouteTable"
+                    },
+                    {
+                        "Ref": "DatabaseTierPrivateRouteTable"
+                    }
+                ]
+            }
+        },
+        "AplicationInstanceConnectEndpoint": {
+            "Type": "AWS::EC2::InstanceConnectEndpoint",
+            "Properties": {
+                "PreserveClientIp": false,
+                "SecurityGroupIds": [
+                    {
+                        "Fn::GetAtt": [
+                            "ApplicationTierSecurityGroup",
+                            "GroupId"
+                        ]
+                    }
+                ],
+                "SubnetId": {
+                    "Ref": "ApplicationTierPrivateSubnet1"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "MyInstanceConnectEndpoint"
+                    }
+                ]
+            }
+        },
+        "DatabaseInstanceConnectEndpoint": {
+            "Type": "AWS::EC2::InstanceConnectEndpoint",
+            "Properties": {
+                "PreserveClientIp": false,
+                "SecurityGroupIds": [
+                    {
+                        "Fn::GetAtt": [
+                            "DatabaseTierSecurityGroup",
+                            "GroupId"
+                        ]
+                    }
+                ],
+                "SubnetId": {
+                    "Ref": "DatabaseTierPrivateSubnet1"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "MyInstanceConnectEndpoint"
+                    }
+                ]
+            }
+        }
+    },
+    "Outputs": {
+        "MyVPC": {
+            "Value": {
+                "Ref": "MyVPC"
+            },
+            "Description": "The ID of the VPC",
+            "Export": {
+                "Name": "MyVPC"
+            }
+        },
+        "WebTierPublicSubnet1": {
+            "Value": {
+                "Ref": "WebTierPublicSubnet1"
+            },
+            "Description": "The ID of the Web Tier Public Subnet 1",
+            "Export": {
+                "Name": "WebTierPublicSubnet1"
+            }
+        },
+        "WebTierPublicSubnet2": {
+            "Value": {
+                "Ref": "WebTierPublicSubnet2"
+            },
+            "Description": "The ID of the Web Tier Public Subnet 2",
+            "Export": {
+                "Name": "WebTierPublicSubnet2"
+            }
+        },
+        "WebTierSecurityGroupID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "WebTierSecurityGroup",
+                    "GroupId"
+                ]
+            },
+            "Description": "The ID of the Web Tier Security Group",
+            "Export": {
+                "Name": "WebTierSecurityGroup"
+            }
+        },
+        "WebTierPublicRouteTableID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "WebTierPublicRouteTable",
+                    "RouteTableId"
+                ]
+            },
+            "Description": "The ID of the Web Tier Public Route Table",
+            "Export": {
+                "Name": "WebTierPublicRouteTable"
+            }
+        },
+        "AplicationTierPrivateSubnet1": {
+            "Value": {
+                "Ref": "AplicationTierPrivateSubnet1"
+            },
+            "Description": "The ID of the Application Tier Private Subnet 1",
+            "Export": {
+                "Name": "AplicationTierPrivateSubnet1"
+            }
+        },
+        "AplicationTierPrivateSubnet2": {
+            "Value": {
+                "Ref": "AplicationTierPrivateSubnet2"
+            },
+            "Description": "The ID of the Application Tier Private Subnet 2",
+            "Export": {
+                "Name": "AplicationTierPrivateSubnet2"
+            }
+        },
+        "AplicationTierSecurityGroupID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "AplicationTierSecurityGroup",
+                    "GroupId"
+                ]
+            },
+            "Description": "The ID of the Application Tier Security Group",
+            "Export": {
+                "Name": "AplicationTierSecurityGroup"
+            }
+        },
+        "AplicationTierPrivateRouteTableID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "AplicationTierPrivateRouteTable",
+                    "RouteTableId"
+                ]
+            },
+            "Description": "The ID of the Application Tier Private Route Table",
+            "Export": {
+                "Name": "AplicationTierPrivateRouteTable"
+            }
+        },
+        "DatabaseTierPrivateSubnet1": {
+            "Value": {
+                "Ref": "DatabaseTierPrivateSubnet1"
+            },
+            "Description": "The ID of the Database Tier Private Subnet 1",
+            "Export": {
+                "Name": "DatabaseTierPrivateSubnet1"
+            }
+        },
+        "DatabaseTierPrivateSubnet2": {
+            "Value": {
+                "Ref": "DatabaseTierPrivateSubnet2"
+            },
+            "Description": "The ID of the Database Tier Private Subnet 2",
+            "Export": {
+                "Name": "DatabaseTierPrivateSubnet2"
+            }
+        },
+        "DatabaseTierSecurityGroupID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "DatabaseTierSecurityGroup",
+                    "GroupId"
+                ]
+            },
+            "Description": "The ID of the Database Tier Security Group",
+            "Export": {
+                "Name": "DatabaseTierSecurityGroup"
+            }
+        },
+        "DatabaseTierPrivateRouteTableID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "DatabaseTierPrivateRouteTable",
+                    "RouteTableId"
+                ]
+            },
+            "Description": "The ID of the Database Tier Private Route Table",
+            "Export": {
+                "Name": "DatabaseTierPrivateRouteTable"
+            }
+        },
+        "AplicationInstanceConnectEndpointID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "AplicationInstanceConnectEndpoint",
+                    "InstanceConnectEndpointId"
+                ]
+            },
+            "Description": "The ID of the Application Instance Connect Endpoint",
+            "Export": {
+                "Name": "AplicationInstanceConnectEndpointID"
+            }
+        },
+        "DatabaseInstanceConnectEndpointID": {
+            "Value": {
+                "Fn::GetAtt": [
+                    "DatabaseInstanceConnectEndpoint",
+                    "InstanceConnectEndpointId"
+                ]
+            },
+            "Description": "The ID of the Database Instance Connect Endpoint",
+            "Export": {
+                "Name": "DatabaseInstanceConnectEndpointID"
+            }
+        }
+    }
+}

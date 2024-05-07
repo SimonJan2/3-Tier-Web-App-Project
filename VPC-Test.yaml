@@ -1,0 +1,250 @@
+# Creation of VPC with Subnets, IGW, Route Table Associations for CloudFormation
+
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC with Subnets, IGW, Route Table Associations
+
+#----------------------- Parameters -----------------------#
+#← ←←←←←←←←←←←←← Parameters →→→→→→→→→→→→→→#
+Parameters:  
+  VPCCidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the VPC (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.0.0/16
+  
+  WebTierPublicSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Web Tier Public Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.1.0/24
+
+  WebTierPublicSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Web Tier Public Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.2.0/24
+  
+  ApplicationTierPrivateSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Application Tier Private Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.3.0/24
+
+  ApplicationTierPrivateSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Application Tier Private Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.4.0/24
+
+  DatabaseTierPrivateSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Database Tier Private Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.5.0/24
+
+  DatabaseTierPrivateSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Database Tier Private Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.6.0/24
+
+#←←←←←←←←←←←←←← Resources →→→→→→→→→→→→→→#
+Resources:
+
+#------------------------- VPC creation -------------------------#
+  MyVPC:
+    Type: AWS::EC2::VPC  # This is an AWS resource type for a Virtual Private Cloud
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      # This property enables DNS resolution within the VPC
+      EnableDnsSupport: 'true'
+      # This property enables DNS hostnames within the VPC
+      EnableDnsHostnames: 'true'
+      # The default tenancy option is 'default'
+      InstanceTenancy: default
+      # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+      Tags:
+      - Key: Name
+        Value: Rashbag-VPC
+
+#------------------------- Subnets creation -------------------------#
+  # This is the WebTierPublicSubnet1 10.0.1.0/24
+  WebTierPublicSubnet1:
+    Type: AWS::EC2::Subnet # This is an AWS resource type for a Subnet
+    Properties:
+      CidrBlock: !Ref WebTierPublicSubnet1CidrBlock  # This is the IP address range for the Subnet
+      VpcId: !Ref MyVPC  # This links the Subnet to the VPC
+      MapPublicIpOnLaunch: true # This enables auto-assignment of IPv4 addresses
+      AvailabilityZone: us-east-1a # This is the Availability Zone
+      Tags: # This sets a tag with a key of 'Name' and the value of 'WebTierPublicSubnet1 - us-east-1a - 10.0.1.0/24'
+      - Key: Name
+        Value: !Join [ " - ", ["WebTierPublicSubnet1", "us-east-1a", !Ref WebTierPublicSubnet1CidrBlock] ] # This is the name of the subnet
+
+  # This is the WebTierPublicSubnet2 10.0.2.0/24
+  WebTierPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref WebTierPublicSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["WebTierPublicSubnet2", "us-east-1b", !Ref WebTierPublicSubnet2CidrBlock] ]
+
+  # This is the ApplicationTierPrivateSubnet1 10.0.3.0/24
+  ApplicationTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref ApplicationTierPrivateSubnet1CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1a
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["ApplicationTierPrivateSubnet1", "us-east-1a", !Ref ApplicationTierPrivateSubnet1CidrBlock] ]
+
+  # This is the ApplicationTierPrivateSubnet2 10.0.4.0/24
+  ApplicationTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref ApplicationTierPrivateSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["ApplicationTierPrivateSubnet2", "us-east-1b", !Ref ApplicationTierPrivateSubnet2CidrBlock] ]
+
+  # This is the DatabaseTierPrivateSubnet1 10.0.5.0/24
+  DatabaseTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref DatabaseTierPrivateSubnet1CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1a
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["DatabaseTierPrivateSubnet1", "us-east-1a", !Ref DatabaseTierPrivateSubnet1CidrBlock] ]
+
+  # This is the DatabaseTierPrivateSubnet2 10.0.6.0/24
+  DatabaseTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: !Ref DatabaseTierPrivateSubnet2CidrBlock
+      VpcId: !Ref MyVPC
+      AvailabilityZone: us-east-1b
+      Tags:
+      - Key: Name
+        Value: !Join [ " - ", ["DatabaseTierPrivateSubnet2", "us-east-1b", !Ref DatabaseTierPrivateSubnet2CidrBlock] ]
+
+#------------------------- Internet Gateway -------------------------#
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway # This is an AWS resource type for an Internet Gateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: InternetGateway # This sets a tag with a key of 'Name' and the value of 'InternetGateway'
+#------------------------- Attach Internet Gateway to VPC -------------------------#
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref InternetGateway
+    DependsOn: InternetGateway
+
+#------------------------- Public Route Tables -------------------------#
+  # This is the WebTierPublicRouteTable
+  WebTierPublicRouteTable:
+    Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
+    Properties:
+      VpcId: !Ref MyVPC # This links the Route Table to the VPC
+      Tags:
+        - Key: Name
+          Value: WebTierPublicRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+
+ # WebRouteTableAssociation
+  WebTierPublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WebTierPublicSubnet1
+      RouteTableId: !Ref WebTierPublicRouteTable
+    DependsOn: AttachGateway
+
+  WebTierPublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WebTierPublicSubnet2
+      RouteTableId: !Ref WebTierPublicRouteTable
+    DependsOn: AttachGateway
+  
+  #------------------------- Private Route Tables -------------------------#
+  # This is the ApplicationTierPrivateRouteTable
+  ApplicationTierPrivateRouteTable:
+    Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
+    Properties:
+      VpcId: !Ref MyVPC # This links the Route Table to the VPC
+      Tags:
+        - Key: Name
+          Value: ApplicationTierPrivateRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+
+  ApplicationTierPrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationTierPrivateSubnet1
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+    DependsOn: AttachGateway
+
+  ApplicationTierPrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationTierPrivateSubnet2
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+    DependsOn: AttachGateway
+
+#------------------------- Route to IGW from Web Tier Public Subnets -------------------------#
+  WebTierPublicRoute:
+    Type: AWS::EC2::Route
+    # DependsOn: WebTierPublicSubnet1
+    Properties:
+      RouteTableId: !Ref WebTierPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#------------------------- Route to IGW from Application Tier Private Subnets -------------------------#
+  ApplicationTierPrivateRoute:
+    Type: AWS::EC2::Route
+    # DependsOn: ApplicationTierPrivateSubnet1
+    Properties:
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#------------------------- Security Groups -------------------------#
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: WebTierSecurityGroup
+      GroupDescription: WebTierSecurityGroup
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: WebTierSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0

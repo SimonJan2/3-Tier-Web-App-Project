@@ -1,0 +1,731 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Highly available 3 Tier architecture for web application
+
+#← ←←←←←←←←←←←←← Parameters →→→→→→→→→→→→→→#
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+    Default: MyKeyPair
+
+  VPCCidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the VPC (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.0.0/16
+  
+  WebTierPublicSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Web Tier Public Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.1.0/24
+
+  WebTierPublicSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Web Tier Public Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.2.0/24
+  
+  ApplicationTierPrivateSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Application Tier Private Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.3.0/24
+
+  ApplicationTierPrivateSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Application Tier Private Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.4.0/24
+
+  DatabaseTierPrivateSubnet1CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Database Tier Private Subnet 1 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.5.0/24
+
+  DatabaseTierPrivateSubnet2CidrBlock:
+    Type: String
+    Description: CIDR block (IPv4) for the Database Tier Private Subnet 2 (x.x.x.x/y)
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})' # This parameter allows only CIDR block in the form of x.x.x.x/y
+    ConstraintDescription: must be a valid IPv4 CIDR range
+    Default: 10.0.6.0/24
+
+#←←←←←←←←←←←←←← Resources →→→→→→→→→→→→→→#
+Resources:
+
+#============================== S3 Full Access Role ==============================#
+  S3FullAccessRoleForEC2:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: S3FullAccessRoleForEC2  # Name of the role
+      # This is the role's trust policy statement that defines
+      # which services are allowed to assume this role.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'  # Policy format version
+        Statement:
+          - Effect: Allow  # Allow the defined services to assume this role
+            Principal:
+              Service:  # The services that can assume this role
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'  # The action that allows the service to assume the role
+      Policies:
+        - PolicyName: S3FullAccessPolicy  # Name of the inline policy in the role
+          PolicyDocument:
+            Version: '2012-10-17'  # Policy format version
+            Statement:
+              - Effect: Allow  # Allow the defined actions on the defined resources
+                Action:
+                  - 's3:*'  # The actions to be allowed
+                Resource:
+                  - '*'  # The resources to which the actions apply
+            #↓↓↓↓ Instance Profile ↓↓↓↓#
+  S3FullAccessInstanceProfile:  # New resource for instance profile
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      # The role(s) that should be applied to EC2 instances that use
+      # this profile.
+      Roles:
+        - !Ref S3FullAccessRoleForEC2  # Reference the created IAM role
+    DependsOn: S3FullAccessRoleForEC2  # This ensures role is created first
+
+#========== VPC creation ==========#
+  MyVPC:
+    Type: AWS::EC2::VPC  # This is an AWS resource type for a Virtual Private Cloud
+    Properties:
+      CidrBlock: !Ref VPCCidrBlock
+      # This property enables DNS resolution within the VPC
+      EnableDnsSupport: 'true'
+      # This property enables DNS hostnames within the VPC
+      EnableDnsHostnames: 'true'
+      # The default tenancy option is 'default'
+      InstanceTenancy: default
+      # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+      Tags:
+      - Key: Name
+        Value: Rashbag-VPC
+    
+#------------------------- Internet Gateway -------------------------#
+  # IGW creation
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway # This is an AWS resource type for an Internet Gateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: Rashbag-IGW # This sets a tag with a key of 'Name' and the value of 'Ilan-IGW'
+
+  # IGW association to VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref MyVPC
+    DependsOn: InternetGateway
+
+#------------------------- Web Tier Public Subnets -------------------------#
+  WebTierPublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref WebTierPublicSubnet1CidrBlock
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["WebTierPublicSubnet1", !GetAtt WebTierPublicSubnet1.AvailabilityZone, !Ref WebTierPublicSubnet1CidrBlock] ]
+
+  WebTierPublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref WebTierPublicSubnet2CidrBlock
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      MapPublicIpOnLaunch: true
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["WebTierPublicSubnet2", !GetAtt WebTierPublicSubnet2.AvailabilityZone, !Ref WebTierPublicSubnet2CidrBlock] ]
+
+#------------------------- Web Tier Security Group -------------------------#
+  WebTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for instances in Public Subnet
+      VpcId: !Ref MyVPC
+      GroupName: WebTierSecurityGroup # Name for the security group
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebTierSecurityGroup
+
+#--------------------------- Web Tier Load Balancer ---------------------------#
+  WebTierSecurityGroupLoadBalancer:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for the web tier load balancer
+      VpcId: !Ref MyVPC
+      GroupName: WebTierSecurityGroupLoadBalancer
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: WebTierSecurityGroupLoadBalancer
+  
+  WebTierLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: WebTierLoadBalancer  # Name of the load balancer
+      Scheme: internet-facing  # Make the ALB publicly accessible
+      Subnets:
+        - !Ref WebTierPublicSubnet1
+        - !Ref WebTierPublicSubnet2
+      SecurityGroups:
+        - !GetAtt WebTierSecurityGroupLoadBalancer.GroupId
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds # Set the idle timeout to 60 seconds
+          Value: '60'
+    DependsOn: WebTierSecurityGroupLoadBalancer
+
+  WebTierLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward  # Forward incoming traffic to the Target Group
+          TargetGroupArn: !Ref WebTierALBTargetGroup
+      LoadBalancerArn: !Ref WebTierLoadBalancer
+      Port: 80  # Listen on port 80 for incoming traffic
+      Protocol: HTTP
+
+  WebTierALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /  # Use the root URL for health checks
+      Port: 80  # Target Group will forward traffic to port 80 of its targets
+      Protocol: HTTP
+      TargetType: instance  # Targets are EC2 instances
+      VpcId: !Ref MyVPC # Target Group is in the same VPC as the load balancer
+      HealthCheckProtocol: HTTP 
+      HealthCheckIntervalSeconds: 30 
+      HealthCheckTimeoutSeconds: 5  
+      HealthyThresholdCount: 2  
+      UnhealthyThresholdCount: 2  
+    
+#------------------------- Web Tier Auto Scaling Group -------------------------#
+  WebTierAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:  # Launch instances in these subnets
+        - !Ref WebTierPublicSubnet1
+        - !Ref WebTierPublicSubnet2
+      LaunchConfigurationName: !Ref WebTierLaunchConfiguration
+      MinSize: 2  # Launch at least this many instances
+      DesiredCapacity: 2  # Launch exactly this many instances 
+      MaxSize: 4  # Launch at most this many instances
+      TargetGroupARNs:  # Attach the Target Group to the ASG
+        - !Ref WebTierALBTargetGroup
+      # Add tags to the Launch Configuration
+      # Enable detailed Auto Scaling Group metrics for use with CloudWatch.
+      # These metrics are required for the budget to work.
+      HealthCheckType: EC2  # Use EC2 health checks
+      HealthCheckGracePeriod: 300  # Wait 300 seconds before checking health
+      MetricsCollection:
+        - Granularity: "1Minute"  # Metrics granularity: 1 minute
+          Metrics:
+            - "GroupMinSize"  # Minimum size of the Auto Scaling Group
+            - "GroupMaxSize"  # Maximum size of the Auto Scaling Group
+            - "GroupDesiredCapacity"  # Desired capacity of the Auto Scaling Group
+            - "GroupInServiceInstances"  # Number of instances in service
+            - "GroupPendingInstances"  # Number of instances pending
+            - "GroupStandbyInstances"  # Number of instances in standby
+            - "GroupTerminatingInstances"  # Number of instances terminating
+            - "GroupTotalInstances"  # Total number of instances
+      Tags:
+        - Key: Name
+          Value: "Rashbag-WebServer"
+          PropagateAtLaunch: true
+
+  WebTierLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0aa7d40eeae50c9a9  # Amazon Linux 2 AMI
+      InstanceType: t2.micro  # Free tier instance type
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref WebTierSecurityGroup # Attach to this security group
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Install the necessary packages and start the web server
+          yum update -y
+          yum install htop -y
+          amazon-linux-extras install epel -y
+          yum install stress -y
+          # stress --cpu 8 --timeout 800 &
+          # killall stress
+          yum install git -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          # Clone the sample app and move its files to the web server root
+          cd /var/www/html/
+          git clone "https://github.com/SimonJan2/AWS-Web-Rashbag.git"
+          mv -f ./AWS-Web-Rashbag/* .
+          rm -rf AWS-Web-Rashbag
+
+#------------------------- Web Tier Scaling Policies -------------------------#
+  WebTierScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity # Increase by 2 instances
+      AutoScalingGroupName: !Ref WebTierAutoScalingGroup # Name of the ASG
+      Cooldown: 300 # Adjust based on your scaling needs
+      ScalingAdjustment: 2 # Increase by 2 instances
+
+  WebTierScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity # Decrease by 2 instances
+      AutoScalingGroupName: !Ref WebTierAutoScalingGroup # Name of the ASG
+      Cooldown: 300 # Adjust based on your scaling needs
+      ScalingAdjustment: -2 # Decrease by 2 instances
+  
+  WebTierScaleOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale up if CPU utilization is greater than 40% for 1 minutes"
+      Namespace: AWS/EC2 # Use the EC2 namespace
+      MetricName: CPUUtilization # CPU utilization
+      Dimensions:
+        - Name: AutoScalingGroupName # Name of the ASG
+          Value: !Ref WebTierAutoScalingGroup # Name of the ASG
+      Statistic: Average # Use the average statistic
+      Period: 300 # 5 minutes (Free tier)
+      EvaluationPeriods: 1 # 1 minute
+      Threshold: 40 # 40%
+      ComparisonOperator: GreaterThanThreshold # Scale up if CPU utilization is greater than 40%
+      AlarmActions: [!Ref WebTierScaleOutPolicy] # Add the scaling policy
+
+  WebTierScaleInAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale down if CPU utilization is less than 20% for 2 minutes"
+      Namespace: AWS/EC2 # Use the EC2 namespace
+      MetricName: CPUUtilization # CPU utilization
+      Dimensions:
+        - Name: AutoScalingGroupName # Name of the ASG
+          Value: !Ref WebTierAutoScalingGroup # Name of the ASG
+      Statistic: Average # Use the average statistic
+      Period: 300 # set to 5 minutes (Free tier)
+      EvaluationPeriods: 1 # 1 minute
+      Threshold: 20 # 20%
+      ComparisonOperator: LessThanThreshold # Scale down if CPU utilization is less than 20%
+      AlarmActions: [!Ref WebTierScaleInPolicy] # Add the scaling policy
+
+
+#------------------------- Web Tier Route Tables -------------------------#
+  WebTierPublicRouteTable:
+    Type: AWS::EC2::RouteTable # This is an AWS resource type for a Route Table
+    Properties:
+      VpcId: !Ref MyVPC # This links the Route Table to the VPC
+      Tags:
+        - Key: Name
+          Value: WebTierPublicRouteTable # This sets a tag with a key of 'Name' and the value of 'Rashbag-VPC'
+
+ # Route to IGW from Web Tier Public Subnets
+  WebTierPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: WebTierPublicSubnet1
+    Properties:
+      RouteTableId: !Ref WebTierPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+#-------------------- Web Tier Route Table Associations --------------------#
+  WebTierPublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WebTierPublicSubnet1
+      RouteTableId: !Ref WebTierPublicRouteTable
+
+  WebTierPublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WebTierPublicSubnet2
+      RouteTableId: !Ref WebTierPublicRouteTable
+
+#------------------------- Application Tier Subnets -------------------------#
+  ApplicationTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref ApplicationTierPrivateSubnet1CidrBlock
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["ApplicationTierPrivateSubnet1", !GetAtt ApplicationTierPrivateSubnet1.AvailabilityZone, !Ref ApplicationTierPrivateSubnet1CidrBlock] ]
+
+  ApplicationTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref ApplicationTierPrivateSubnet2CidrBlock
+      AvailabilityZone: !Select [ 1, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["ApplicationTierPrivateSubnet2", !GetAtt ApplicationTierPrivateSubnet2.AvailabilityZone, !Ref ApplicationTierPrivateSubnet2CidrBlock] ]
+
+#------------------------- Application Tier Security Group -------------------------#
+  ApplicationTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref MyVPC
+      GroupDescription: Security group for the application tier
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+      Tags:
+        - Key: Name
+          Value: ApplicationTierSecurityGroup
+
+#------------------------- Application Tier Route Tables -------------------------#
+  ApplicationTierPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: ApplicationTierPrivateRouteTable
+
+  ApplicationTierPrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationTierPrivateSubnet1 # This links the Route Table to the VPC
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable # This links the Route Table to the VPC
+
+  ApplicationTierPrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref ApplicationTierPrivateSubnet2 # This links the Route Table to the VPC
+      RouteTableId: !Ref ApplicationTierPrivateRouteTable # This links the Route Table to the VPC
+
+#------------------------- Application Tier Load Balancer -------------------------#
+
+  ApplicationTierLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: ApplicationTierLoadBalancer  # Name of the load balancer
+      Scheme: internal  # Make the ALB internally accessible
+      Subnets:
+        - !Ref ApplicationTierPrivateSubnet1
+        - !Ref ApplicationTierPrivateSubnet2
+      SecurityGroups:
+        - !GetAtt ApplicationTierSecurityGroup.GroupId 
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds # Set the idle timeout to 60 seconds
+          Value: '60'
+    DependsOn: ApplicationTierLoadBalancer
+
+  ApplicationTierLoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward  # Forward incoming traffic to the Target Group
+          TargetGroupArn: !Ref ApplicationTierALBTargetGroup
+      LoadBalancerArn: !Ref ApplicationTierLoadBalancer
+      Port: 80  # Listen on port 80 for incoming traffic
+      Protocol: HTTP
+
+  ApplicationTierALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckPath: /  # Use the root URL for health checks
+      Port: 80  # Target Group will forward traffic to port 80 of its targets
+      Protocol: HTTP
+      TargetType: instance  # Targets are EC2 instances
+      VpcId: !Ref MyVPC # Target Group is in the same VPC as the load balancer
+      HealthCheckProtocol: HTTP 
+      HealthCheckIntervalSeconds: 30 
+      HealthCheckTimeoutSeconds: 5  
+      HealthyThresholdCount: 2  
+      UnhealthyThresholdCount: 2  
+
+#------------------------- Application Tier Auto Scaling Group -------------------------#
+  ApplicationTierAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - !Ref ApplicationTierPrivateSubnet1
+        - !Ref ApplicationTierPrivateSubnet2
+      LaunchConfigurationName: !Ref ApplicationTierLaunchConfiguration
+      MinSize: 2  # Launch at least this many instances
+      DesiredCapacity: 2  # Launch exactly this many instances 
+      MaxSize: 4  # Launch at most this many instances
+      TargetGroupARNs:  # Attach the Target Group to the ASG
+        - !Ref ApplicationTierALBTargetGroup
+      # Add tags to the Launch Configuration
+      # Enable detailed Auto Scaling Group metrics for use with CloudWatch.
+      # These metrics are required for the budget to work.
+      HealthCheckType: EC2  # Use EC2 health checks
+      HealthCheckGracePeriod: 300  # Wait 300 seconds before checking health
+      MetricsCollection:
+        - Granularity: "1Minute"  # Metrics granularity: 1 minute
+          Metrics:
+            - "GroupMinSize"  # Minimum size of the Auto Scaling Group
+            - "GroupMaxSize"  # Maximum size of the Auto Scaling Group
+            - "GroupDesiredCapacity"  # Desired capacity of the Auto Scaling Group
+            - "GroupInServiceInstances"  # Number of instances in service
+            - "GroupPendingInstances"  # Number of instances pending
+            - "GroupStandbyInstances"  # Number of instances in standby
+            - "GroupTerminatingInstances"  # Number of instances terminating
+            - "GroupTotalInstances"  # Total number of instances
+      Tags:
+        - Key: Name
+          Value: "ApplicationTier-Server"
+          PropagateAtLaunch: true
+
+  ApplicationTierLaunchConfiguration:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      ImageId: ami-0aa7d40eeae50c9a9 # Amazon Linux 2 AMI (Free Tier)
+      InstanceType: t2.micro
+      KeyName: !Ref KeyName # Name of an existing EC2 KeyPair to enable SSH access to the instance
+      IamInstanceProfile: !Ref S3FullAccessInstanceProfile # Use the created instance profile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "false" # Do not associate a public IP address
+          DeviceIndex: "0" # eth0
+          GroupSet:
+            - !Ref ApplicationTierSecurityGroup # Allow access from the application tier security group
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          # Create a new S3 bucket
+          # The bucket name is "rashbag-ec2-private-1"
+          BUCKET_NAME="rashbag-ec2-private-1"
+
+          # Documentation: https://docs.aws.amazon.com/cli/latest/reference/s3/mb.html
+          aws s3 mb s3://$BUCKET_NAME
+
+          # Create a file with the content "hello world"
+          echo "hello world" > rashbag.txt
+
+          # Upload the file to the new bucket
+          # The object key is "rashbag.txt"
+          aws s3 cp rashbag.txt s3://$BUCKET_NAME/
+
+#------------------------- Application Tier Scaling Policies -------------------------#
+  ApplicationTierScaleOutPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity # Increase by 2 instances
+      AutoScalingGroupName: !Ref ApplicationTierAutoScalingGroup # Name of the ASG
+      Cooldown: 300 # Adjust based on your scaling needs
+      ScalingAdjustment: 2 # Increase by 2 instances
+
+  ApplicationTierScaleInPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity # Decrease by 2 instances
+      AutoScalingGroupName: !Ref ApplicationTierAutoScalingGroup # Name of the ASG
+      Cooldown: 300 # Adjust based on your scaling needs
+      ScalingAdjustment: -2 # Decrease by 2 instances
+  
+  ApplicationTierScaleOutAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale up if CPU utilization is greater than 40% for 1 minutes"
+      Namespace: AWS/EC2 # Use the EC2 namespace
+      MetricName: CPUUtilization # CPU utilization
+      Dimensions:
+        - Name: AutoScalingGroupName # Name of the ASG
+          Value: !Ref ApplicationTierAutoScalingGroup # Name of the ASG
+      Statistic: Average # Use the average statistic
+      Period: 300 # 5 minutes (Free tier)
+      EvaluationPeriods: 1 # 1 minute
+      Threshold: 40 # 40%
+      ComparisonOperator: GreaterThanThreshold # Scale up if CPU utilization is greater than 40%
+      AlarmActions: [!Ref ApplicationTierScaleOutPolicy] # Add the scaling policy
+
+  ApplicationTierScaleInAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Scale down if CPU utilization is less than 20% for 2 minutes"
+      Namespace: AWS/EC2 # Use the EC2 namespace
+      MetricName: CPUUtilization # CPU utilization
+      Dimensions:
+        - Name: AutoScalingGroupName # Name of the ASG
+          Value: !Ref ApplicationTierAutoScalingGroup # Name of the ASG
+      Statistic: Average # Use the average statistic
+      Period: 300 # set to 5 minutes (Free tier)
+      EvaluationPeriods: 1 # 1 minute
+      Threshold: 20 # 20%
+      ComparisonOperator: LessThanThreshold # Scale down if CPU utilization is less than 20%
+      AlarmActions: [!Ref ApplicationTierScaleInPolicy] # Add the scaling policy
+
+#------------------------- Database Tier SecurityGroup -------------------------#
+  DatabaseTierSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref MyVPC
+      GroupDescription: Security group for MySQL RDS database
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '3306'
+          ToPort: '3306'
+          SourceSecurityGroupId: !Ref ApplicationTierSecurityGroup
+
+#------------------------- Database Tier Subnets -------------------------#
+  DatabaseTierPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref DatabaseTierPrivateSubnet1CidrBlock
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["DatabaseTierPrivateSubnet1", !GetAtt DatabaseTierPrivateSubnet1.AvailabilityZone, !Ref DatabaseTierPrivateSubnet1CidrBlock] ]
+
+  DatabaseTierPrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: !Ref DatabaseTierPrivateSubnet2CidrBlock
+      AvailabilityZone: !Select [ 0, !GetAZs "" ]
+      MapPublicIpOnLaunch: false
+      Tags:
+      - Key: Name
+        Value: !Join [ "-", ["DatabaseTierPrivateSubnet2", !GetAtt DatabaseTierPrivateSubnet2.AvailabilityZone, !Ref DatabaseTierPrivateSubnet2CidrBlock] ]
+
+#------------------------- Database Tier Route Tables -------------------------#
+  DatabaseTierPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: DatabaseTierPrivateRouteTable
+
+  DatabaseTierPrivateSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DatabaseTierPrivateSubnet1 # This links the Route Table to the VPC
+      RouteTableId: !Ref DatabaseTierPrivateRouteTable # This links the Route Table to the VPC
+
+  DatabaseTierPrivateSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DatabaseTierPrivateSubnet2 # This links the Route Table to the VPC
+      RouteTableId: !Ref DatabaseTierPrivateRouteTable # This links the Route Table to the VPC
+
+#------------------------- Database Tier RDS Instance -------------------------#
+  RDSDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: mydatabase
+      AllocatedStorage: 20
+      DBInstanceClass: db.t2.micro
+      Engine: MySQL
+      EngineVersion: '8.0'
+      MasterUsername: admin
+      MasterUserPassword: Shimishelly100
+      MultiAZ: true # Enable Multi-AZ
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseTierSecurityGroup
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref DatabaseTierPrivateSubnet1
+        - !Ref DatabaseTierPrivateSubnet2
+
+#------------------------- Endpoints -------------------------#
+# Endpoint for accessing Amazon S3 with a Name tag
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcEndpointType: Gateway
+      VpcId: !Ref MyVPC
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      PolicyDocument:
+        Version: "2008-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "*"
+            Resource: "*"
+      RouteTableIds:
+        - !Ref ApplicationTierPrivateRouteTable
+        - !Ref DatabaseTierPrivateRouteTable
+
+# Endpoint for accessing Application Instance Connect
+  AplicationInstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
+      SecurityGroupIds: 
+        - !GetAtt ApplicationTierSecurityGroup.GroupId  # Replace with your security group ID(s)
+      SubnetId: !Ref ApplicationTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
+      Tags: 
+        - Key: Name
+          Value: MyInstanceConnectEndpoint
+
+# Endpoint for accessing Database Instance Connect
+  DatabaseInstanceConnectEndpoint:
+    Type: AWS::EC2::InstanceConnectEndpoint
+    Properties:
+      PreserveClientIp: false  # Set to true to preserve the client's IP address when establishing an instance connection
+      SecurityGroupIds: 
+        - !GetAtt DatabaseTierSecurityGroup.GroupId  # Replace with your security group ID(s)
+      SubnetId: !Ref DatabaseTierPrivateSubnet1  # Only one subnet ID is allowed per instance connect endpoint
+      Tags: 
+        - Key: Name
+          Value: MyInstanceConnectEndpoint
+
+Outputs:
+  WebTierURL:
+    Description: URL of the web tier load balancer
+    Value: !GetAtt WebTierLoadBalancer.DNSName
+
+  ApplicationTierURL:
+    Description: URL of the application tier load balancer
+    Value: !GetAtt ApplicationTierLoadBalancer.DNSName
+
+  RDSDBEndpoint:
+    Description: Endpoint of the RDS database instance
+    Value: !GetAtt RDSDBInstance.Endpoint.Address
